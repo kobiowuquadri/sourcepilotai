@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: sourcepilot-ai
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --config gunicorn.conf.py app:app
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: FLASK_DEBUG
+        value: "false"
+      - key: GEMINI_MODEL
+        value: gemini-3.8-flash
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

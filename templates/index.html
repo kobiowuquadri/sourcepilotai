@@ -1,0 +1,84 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#FAF9F6">
+  <meta name="description" content="Research the web with SourcePilot AI and explore the evidence behind every answer.">
+  <title>SourcePilot AI — Research smarter. Verify everything.</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='assets/logo.svg') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650;700&family=Lora:wght@400;450;500;550;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script defer src="{{ url_for('static', filename='js/lucide.min.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <aside class="sidebar" aria-label="Workspace navigation">
+    <a class="brand" href="/" aria-label="SourcePilot AI home"><img src="{{ url_for('static', filename='assets/logo.svg') }}" width="32" height="32" alt=""><span>SourcePilot<span class="brand-ai">AI</span></span></a>
+    <button type="button" class="sidebar-new new-research" aria-label="New research"><i data-lucide="plus"></i><span>New research</span></button>
+    <nav class="main-nav" aria-label="Main navigation"><a href="#research" class="nav-link active" id="research-nav" aria-current="page"><i data-lucide="search"></i><span>Research</span></a></nav>
+    <div class="sidebar-bottom"><button type="button" id="how-nav" class="nav-link" aria-label="How it works" aria-haspopup="dialog"><i data-lucide="circle-help"></i><span>How it works</span></button><div class="provider-credit"><span>Powered by</span><p>Tavily <span>+</span> Gemini</p></div></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar"><div class="breadcrumb"><span>Research</span><span class="breadcrumb-divider">/</span><span id="view-label">New session</span></div><span class="topbar-note"><i data-lucide="globe-2"></i> An open web. A clearer answer.</span></header>
+    <main id="main">
+      <section id="landing" class="landing">
+        <div class="composer-space" id="research">
+          <div class="welcome-mark" aria-hidden="true"><img src="{{ url_for('static', filename='assets/logo.svg') }}" width="48" height="48" alt=""></div>
+          <h1>Where would you like to begin?</h1>
+          <p class="welcome-description">Bring your curiosity. We’ll follow the evidence.</p>
+          <form id="research-form" class="research-form" novalidate>
+            <label for="question" class="sr-only">What would you like to research?</label>
+            <textarea id="question" name="question" rows="3" minlength="3" maxlength="1500" required placeholder="Ask a question. Explore an idea. Compare possibilities…" aria-describedby="question-hint form-error"></textarea>
+            <div class="input-bottom"><span class="research-mode"><i data-lucide="globe-2"></i> Web research</span><button type="submit" id="start-button" class="button button-primary"><span>Start research</span><i data-lucide="search"></i></button></div>
+          </form>
+          <div class="input-under"><span id="question-hint">Grounded in sources. Open to exploration.</span><span class="keyboard-hint"><kbd>Ctrl</kbd><kbd>↵</kbd></span></div>
+          <p id="form-error" class="error-message" role="alert" hidden></p>
+          <p id="config-notice" class="config-notice" hidden><i data-lucide="info"></i><span>Add your Tavily and Gemini API keys to the server’s .env file to enable research.</span></p>
+          <div class="examples" aria-label="Example research questions"><p class="examples-label">Or start with a little inspiration</p><div class="example-list">
+            <button type="button" class="example" data-question="What are the biggest AI trends in 2026?"><span class="example-topic">Explore a topic</span><span>What’s next for AI?</span></button>
+            <button type="button" class="example" data-question="Compare Python, Node.js, and Go for backend development."><span class="example-topic">Compare your options</span><span>Python, Node.js, or Go?</span></button>
+            <button type="button" class="example" data-question="What are the latest developments in renewable energy?"><span class="example-topic">Follow an idea</span><span>The future of clean energy</span></button>
+          </div></div>
+        </div>
+      </section>
+      <section id="workspace" class="workspace page-width" hidden aria-labelledby="workspace-title">
+        <div class="workspace-top"><span class="eyebrow">YOUR QUESTION</span><button type="button" id="cancel-button" class="button button-quiet"><i data-lucide="square"></i> Stop research</button></div>
+        <h1 id="workspace-title" tabindex="-1"></h1>
+        <div class="workspace-grid">
+          <div class="research-status-panel">
+            <div class="panel-heading"><span class="activity-orb"><img src="{{ url_for('static', filename='assets/logo.svg') }}" width="32" height="32" alt=""></span><div><h2 id="activity-title">Following the evidence</h2><p id="activity-message" role="status" aria-live="polite">Starting your research…</p></div></div>
+            <ol class="progress-timeline" id="progress-timeline">
+              <li data-stage="understanding"><span class="step-marker"><i data-lucide="check"></i></span><span>Understanding your question</span></li>
+              <li data-stage="planning"><span class="step-marker"><i data-lucide="check"></i></span><span>Planning the research</span></li>
+              <li data-stage="searching"><span class="step-marker"><i data-lucide="check"></i></span><span>Searching the web</span></li>
+              <li data-stage="reviewing"><span class="step-marker"><i data-lucide="check"></i></span><span>Reviewing sources</span></li>
+              <li data-stage="analyzing"><span class="step-marker"><i data-lucide="check"></i></span><span>Analyzing findings</span></li>
+              <li data-stage="preparing"><span class="step-marker"><i data-lucide="check"></i></span><span>Preparing your report</span></li>
+            </ol>
+            <details id="plan-preview" class="plan-preview" hidden><summary>The research plan</summary><p id="plan-objective"></p><ul id="plan-questions"></ul></details>
+            <details class="activity-details"><summary>Search activity</summary><div id="search-log" class="search-log"></div></details>
+            <div id="workspace-error" class="workspace-error" role="alert" hidden><i data-lucide="circle-alert"></i><p></p><div class="error-actions"><button type="button" id="retry-button" class="button button-secondary">Try again</button><button type="button" class="button button-quiet new-research">Edit question</button></div></div>
+          </div>
+          <aside class="live-sources-panel" aria-label="Discovered sources"><div class="sources-heading"><h2>Sources discovered</h2><span id="live-source-count" class="count-badge">0</span></div><div id="live-sources"><div class="source-placeholder"><i data-lucide="book-open"></i><p>Finding a place to start.</p><span>Sources appear here as they’re discovered.</span></div></div></aside>
+        </div>
+      </section>
+      <section id="report-view" class="report-view page-width" hidden aria-label="Research report">
+        <div class="report-toolbar"><span class="report-ready"><i data-lucide="check"></i> Research complete</span><div class="report-actions"><button type="button" id="copy-button" class="button button-quiet"><i data-lucide="copy"></i><span>Copy report</span></button><button type="button" id="print-button" class="button button-quiet"><i data-lucide="download"></i><span>Export PDF</span></button><button type="button" id="sources-toggle" class="button button-secondary" aria-controls="sources-panel" aria-expanded="true"><i data-lucide="panel-right"></i><span>Sources</span><span id="report-source-count" class="count-badge">0</span></button></div></div>
+        <div class="report-grid" id="report-grid"><article id="report-document" class="report-document"></article><aside id="sources-panel" class="report-sources" aria-labelledby="sources-title"><div class="sources-heading"><h2 id="sources-title">Sources &amp; references</h2><button type="button" id="sources-close" class="icon-button" aria-label="Collapse sources"><i data-lucide="x"></i></button></div><p class="sources-caption">The evidence behind your answer.</p><div id="report-sources"></div><p class="source-footnote">Read the original context to explore a finding further.</p></aside></div>
+        <div class="report-end"><span>Keep your curiosity going.</span><button type="button" class="button button-secondary new-research"><i data-lucide="plus"></i> New research</button></div>
+      </section>
+    </main>
+    <footer class="site-footer"><p>Research smarter. Verify everything.</p><span>SourcePilot AI</span></footer>
+  </div>
+  <dialog id="how-dialog" aria-labelledby="how-title"><div class="dialog-heading"><span class="eyebrow">A LOOK BEHIND THE ANSWER</span><button type="button" id="how-close" class="icon-button" aria-label="Close how it works" autofocus><i data-lucide="x"></i></button></div><h2 id="how-title">Curiosity, with a process.</h2><p class="dialog-intro">One question. A thoughtful trail of evidence.</p><div class="how-steps">
+    <section><i data-lucide="list-checks"></i><div><h3>Make a plan</h3><p>Gemini turns your question into focused objectives and search queries.</p></div></section>
+    <section><i data-lucide="globe-2"></i><div><h3>Follow the evidence</h3><p>Tavily searches the live web. The agent reviews sources and follows up when something is missing.</p></div></section>
+    <section><i data-lucide="book-open"></i><div><h3>Bring it into focus</h3><p>Get a structured report with citations and supporting excerpts you can explore, copy, or save as a PDF.</p></div></section>
+  </div><p class="dialog-footnote">AI can make mistakes. Use the linked sources to check important findings.</p></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
