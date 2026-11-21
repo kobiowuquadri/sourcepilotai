@@ -250,7 +250,7 @@ async function startResearch(question) {
 }
 
 function plainText(segments) {
-  return (segments || []).map((s) => s.t === "strong" || s.t === "em" ? plainText(s.c) : s.t === "cite" ? "" : s.v || "").join("").replace(/\s+/g, " ").trim();
+  return (segments || []).map((s) => s.t === "strong" || s.t === "em" ? plainText(s.c) : s.t === "cite" ? "" : s.v || "").join("").replace(/\s+/g, " ").replace(/\s+([.,;:!?)])/g, "$1").trim();
 }
 
 function renderInline(segments, parent, excerpt = null) {

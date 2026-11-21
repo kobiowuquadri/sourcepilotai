@@ -20,6 +20,30 @@ The app uses the **real Tavily Research API exclusively**. There is no other AI 
 - Copy reports with their references, or export a print-formatted PDF from your browser.
 - A warm, responsive research workspace with a focused question composer, collapsible sources, local Lucide icons, and a custom SVG identity.
 
+## Screenshots
+
+These come from a real research run with the Tavily Research API (`mini` model, Nov 21, 2026) on the question *“Compare Python, Node.js, and Go for backend development.”* The run took 42.6 seconds and made 13 web searches. Tavily consulted 35 sources and the report cites 17 of them.
+
+**Ask anything.** Type a question or start from an example.
+
+![SourcePilot home screen with the research composer and example questions](docs/screenshots/01-home.png)
+
+**Watch the research happen.** The timeline, search queries, and discovered sources come from Tavily's live research events.
+
+![Live research progress showing completed stages, real Tavily search queries, and discovered sources](docs/screenshots/02-live-progress.png)
+
+**Get a cited research brief.** Each report has an overview, sections, comparison tables, and a sources panel.
+
+![Finished research report with an overview, runtime performance section, and a numbered sources panel](docs/screenshots/03-report.png)
+
+**Verify every claim.** Select a citation to jump to its source, then see every passage that cites it.
+
+![A citation opens its source card, which lists the report passages that cite that source](docs/screenshots/04-citations.png)
+
+**Works on any screen.** The same report on a phone, with copy and PDF export.
+
+<p align="center"><img src="docs/screenshots/05-mobile-report.png" alt="The research report on a 390px-wide phone screen" width="320"></p>
+
 ## How it works
 
 ```text
