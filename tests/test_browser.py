@@ -134,12 +134,13 @@ def test_progress_tracks_provider_work_and_cancel_preserves_question(browser_app
     browser, url, artifacts = browser_app
     released = Event()
     session, _ = make_case()
-    chunks = stream_chunks("What is artificial intelligence?")
+    raw = b"".join(stream_chunks("What is artificial intelligence?"))
+    first_event = raw.index(b"\n\n") + 2
 
     def wait_for_release():
-        yield chunks[0]  # Tavily's real first event: planning starts.
+        yield raw[:first_event]  # Tavily's real first event: planning starts.
         released.wait(timeout=30)
-        yield from chunks[1:]
+        yield raw[first_event:]
 
     session.tavily.research.side_effect = lambda **kwargs: wait_for_release()
     monkeypatch.setattr(agent, "create_session", lambda: session)

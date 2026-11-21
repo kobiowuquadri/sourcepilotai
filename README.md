@@ -105,7 +105,6 @@ Add your key from [Tavily](https://app.tavily.com/) to `.env`. Do not commit tha
 TAVILY_API_KEY=your_tavily_key
 TAVILY_RESEARCH_MODEL=mini
 FLASK_DEBUG=false
-PORT=5000
 ```
 
 | Variable | Purpose |
@@ -113,7 +112,7 @@ PORT=5000
 | `TAVILY_API_KEY` | Required server-side Tavily credential. |
 | `TAVILY_RESEARCH_MODEL` | `mini` (default), `pro`, or `auto`. Unknown values fall back to `mini`. |
 | `FLASK_DEBUG` | Optional local debugging; keep `false` in deployment. |
-| `PORT` | Local port or hosting-provided production port. |
+| `PORT` | Optional, local only (defaults to 5000). **Never set it on Render**; Render provides it. |
 
 Start the app in PowerShell:
 
@@ -200,6 +199,8 @@ The repository includes `render.yaml` and `gunicorn.conf.py`. Push the source to
 | Required secret | `TAVILY_API_KEY` |
 | Model | `TAVILY_RESEARCH_MODEL=mini` (or `pro` / `auto`) |
 | Debug | `FLASK_DEBUG=false` |
+
+**Do not add a `PORT` environment variable on Render.** Render assigns the port (10000 by default) and Gunicorn binds to it automatically. If you set `PORT=5000` there, Render waits on port 5000 while Gunicorn is listening on 10000, and the deploy fails with "Port scan timeout reached, failed to detect open port 5000". The only secret you need is `TAVILY_API_KEY`; remove any old `GEMINI_*` variables.
 
 Gunicorn binds to `0.0.0.0:$PORT` using the port Render supplies, and Render terminates HTTPS. Gunicorn is installed only on non-Windows platforms; on Windows, use Flask's development server locally. Never enable Flask's debugger publicly. The app sends no-buffering headers for streaming; if you add a reverse proxy, turn off response buffering and allow for the full research duration.
 
