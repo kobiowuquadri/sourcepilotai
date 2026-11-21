@@ -2,78 +2,84 @@
 
 **Research smarter. Verify everything.**
 
-A focused autonomous research agent built for the Global AI Hackathon — Tavily Research Agent Track. Ask a question, watch the research unfold, and receive a structured report with source references, supporting excerpts, and explicit limitations.
+A focused research workspace built for the Global AI Hackathon — Tavily Research Agent Track. Ask a question, watch the research unfold live, and receive a structured report with numbered, clickable citations that link to every source.
 
 ## The problem and the solution
 
-Search engines leave users to assemble an answer from many pages. An unsupported chatbot answer creates a different problem: the reader cannot trace its claims. SourcePilot combines live web discovery with deliberate planning, evidence review, and cited synthesis in one research workspace.
+Search engines leave users to assemble an answer from many pages. An unsupported chatbot answer creates a different problem: the reader cannot trace its claims. SourcePilot puts Tavily's research agent behind a clean workspace: it plans the research, searches the live web, analyzes sources, and writes a cited report, while you watch each real step.
 
-The app uses **real Tavily and Gemini APIs**. It has no offline answer generator or production demo mode. Without credentials, it explains what needs configuration instead of generating a pretend report.
+The app uses the **real Tavily Research API exclusively**. There is no other AI provider, no offline answer generator, and no demo mode. Without a key, it explains what needs configuration instead of generating a pretend report.
 
 ## Features
 
-- Gemini plans research objectives, subquestions, and focused searches.
-- Tavily discovers current sources and returns relevant text for analysis.
-- Gemini reviews coverage and decides whether a targeted follow-up is worthwhile.
-- A hard budget limits each request to **three Tavily searches**.
-- Reports distinguish source-backed findings, interpretation, and uncertainty.
-- Citation IDs and exact supporting excerpts are checked against retrieved content.
-- A real event timeline, source discovery panel, cancellation, and recoverable errors keep the process transparent.
+- **One provider, end to end.** The Tavily Research API handles research planning, web searches, source analysis, and report writing with numbered citations.
+- **Live, real progress.** The research timeline, search queries, and discovered sources come from Tavily's streamed research events. Nothing is simulated.
+- **Reliable by design.** If the live stream drops, SourcePilot recovers with Tavily's asynchronous research task and polls it to completion, so a network hiccup doesn't end in a timeout.
+- **Verifiable citations.** Every `[n]` in the report links to its reference in the sources panel, which links to the original page. Each source card shows the passages of the report that cite it.
+- **Safe rendering.** Tavily's Markdown report is parsed on the server into plain-text blocks (headings, paragraphs, lists, tables, quotes). The browser renders them with `textContent` only; no provider HTML ever reaches the page, and unsafe URLs never become links.
 - Copy reports with their references, or export a print-formatted PDF from your browser.
 - A warm, responsive research workspace with a focused question composer, collapsible sources, local Lucide icons, and a custom SVG identity.
 
-## How the agent works
+## How it works
 
 ```text
-Question → Gemini plan → 1–2 Tavily searches → source filtering
-         → Gemini evidence review → optional targeted Tavily search
-         → Gemini report → citation checks → report + source panel
-```
+Question → Flask validates it → Tavily Research (stream=True, citation_format="numbered")
+         → live events: Planning → WebSearch (queries, sources) → Generating → report text
+         → server parses the Markdown report and its numbered reference list
+         → report + citations + sources panel
 
-This is a controlled agent workflow: the model formulates its search strategy, evaluates the returned evidence, and chooses a further search when that evidence leaves an important gap. The final answer depends on retrieved content, rather than one search snippet or an answer from model memory.
+If the stream breaks:  Tavily research task (async) → poll get_research(request_id) → same report pipeline
+```
 
 `agent.py` keeps the steps in straightforward functions:
 
 | Function | Responsibility |
 | --- | --- |
-| `plan_research` | Resolve the question into objectives, subquestions, queries, and a recency filter. |
-| `search_web` | Call the Tavily SDK, enforce the shared search budget, and use explicit timeouts. |
-| `analyze_sources` | Remove low-scoring, empty, unsafe, and duplicate results; retain original URLs. |
-| `identify_gaps` | Ask Gemini to select relevant sources and decide whether to follow up. |
-| `generate_report` | Synthesize only supplied evidence into a validated report schema. |
-| `validate_citations` | Check source IDs and quote provenance, omit invalid statements, and renumber cited sources. |
-| `run_research` | Coordinate the steps and yield actual progress and result events. |
+| `stream_research` | Calls `TavilyClient.research(stream=True)`, parses its Server-Sent Events, and turns Tavily's real tool events into progress, query, and source updates. |
+| `poll_research` | Tavily's asynchronous workflow: `research()` creates a task, `get_research(request_id)` polls it until `completed` or `failed`. Used automatically if the stream is interrupted. |
+| `build_report` | Extracts the title and the numbered reference list, matches each reference to the sources Tavily actually retrieved, and parses the body into safe blocks with citation segments. |
+| `run_research` | Coordinates the steps and yields progress, sources, notice, and result events. |
+| `provider_error` | Maps Tavily SDK errors (auth, credits, rate limits, timeouts) to clear user messages without exposing provider details. |
 
-**Call budget:** up to three Tavily calls and normally three Gemini calls (plan, evidence review, synthesis). The small additional review call is intentional: it makes gap detection semantic and responsive to the retrieved evidence. One additional Gemini request is allowed across the whole workflow after a temporary server error or timeout, subject to the same overall deadline. Authentication, quota, invalid requests, and invalid output are never retried. There are no open-ended agent loops. A cooperative 160-second workflow deadline limits the time available to each next call; each Tavily request has at most an 18-second timeout, planning/review at most 35 seconds each, and synthesis at most 60 seconds. Provider/network timeout semantics can add overhead.
+### Reliability and timeouts
+
+- The stream uses a 150-second idle timeout between chunks, not a total timeout, so long research is never cut off while Tavily is still working.
+- The whole workflow has a 300-second deadline. The browser waits up to 330 seconds and Gunicorn's worker timeout is 330 seconds.
+- Network drops, timeouts, and 5xx errors trigger the polling fallback once. Authentication, credit, rate-limit, and bad-request errors are reported right away and never retried.
+- While polling, short transient failures are retried, up to four consecutive failures.
+- Cancellation stops the stream and closes the connection. A research task that Tavily has already accepted may still finish on Tavily's side and use credits.
 
 ## Architecture and stack
 
-- **Backend:** Python 3.11+, Flask, `google-genai`, `tavily-python`, Pydantic, `python-dotenv`.
+- **Backend:** Python 3.11+, Flask, `tavily-python` (official SDK), `requests`, `python-dotenv`.
 - **Frontend:** HTML, CSS, vanilla JavaScript, Lucide, Inter and Lora.
 - **Transport:** Fetch reads newline-delimited JSON from Flask. Heartbeats keep the connection open but never advance the timeline.
 - **Deployment:** Gunicorn on Render; no database, Docker, Redis, queues, or frontend build system.
 
-`app.py` exposes `GET /`, `GET /api/health`, and `POST /api/research`. Each admitted research request uses a small background thread so Flask can stream heartbeats while a provider call is in progress. A semaphore permits at most two research tasks per process. Gunicorn uses one process and four request threads. Cancellation prevents subsequent research steps once noticed; an API call already in progress may finish and incur provider usage.
+`app.py` exposes `GET /`, `GET /api/health`, and `POST /api/research`. Each admitted research request runs in a small background thread so Flask can stream heartbeats while Tavily works. A semaphore allows at most two research tasks per process. Gunicorn uses one process and four request threads.
 
 ## Tavily integration
 
-SourcePilot uses `TavilyClient.search` with advanced search, a maximum of five results per query, explicit timeouts, and no Tavily-generated answer. The returned `content` snippets are the evidence supplied to Gemini. This retrieves relevant web text without an additional extraction request. Recency filters are set for time-sensitive questions.
+SourcePilot uses two SDK methods from `tavily-python` 0.8.5:
 
-URL normalization is used only to detect duplicates. The original URL from Tavily is retained in every reference. Results with low relevance scores or insufficient content are removed; Gemini then evaluates relevance to the actual question. At most 12 source snippets of 3,600 characters each reach synthesis.
+- `TavilyClient.research(input, model, stream, citation_format, timeout)`: `stream=True` returns Tavily's live event stream; `stream=False` returns `{request_id, status: "pending"}`.
+- `TavilyClient.get_research(request_id, include_usage=True)`: returns `status` (`pending`, `in_progress`, `completed`, `failed`) and, when complete, `content`, `sources`, and `usage.credits`.
 
-## Gemini integration and evidence integrity
+The research model is set by `TAVILY_RESEARCH_MODEL`:
 
-The supported `google-genai` SDK sends separate system instructions and JSON data, requests structured JSON with Pydantic-derived schemas, and validates the returned shape. `GEMINI_MODEL` is configurable; the example uses `gemini-3.5-flash-lite`, a [stable model optimized for low latency](https://aistudio.google.com/docs/models/gemini-3.5-flash-lite) and verified with real research requests. Check model availability for your account if an API call fails.
+| Model | When to use it |
+| --- | --- |
+| `mini` (default) | Fast, focused research. It took about 30–40 seconds and 38 credits in testing. |
+| `pro` | Deeper, multi-angle research. It is slower and uses more credits. |
+| `auto` | Tavily chooses based on the question. |
 
-For Gemini 3 models, the small planning step requests `LOW` thinking; evidence review and report synthesis retain the model's default. See [Google's thinking configuration guidance](https://aistudio.google.com/docs/thinking). Provider deadline errors are displayed as timeouts.
+Citations use `citation_format="numbered"`. Each report ends with a numbered reference list, which SourcePilot separates from the body and checks:
 
-The schema sent to Gemini keeps field types, required fields, and citation structure, but expresses length bounds as descriptions. Nested array bounds can exceed Gemini's constrained-decoding limits; the original strict Pydantic models still enforce those bounds after generation. Supporting excerpts are requested short and bounded to 600 characters, and must match the retrieved source text. See [Google's schema guidance](https://aistudio.google.com/docs/structured-output#simplifying-complex-schemas).
+- Only `http(s)` URLs on public hosts become links.
+- Each reference is matched to the sources Tavily actually retrieved during the run (`retrieved: true` in the API response).
+- A citation number with no matching reference is shown as plain text and recorded in the report's research notes.
 
-Webpage text is explicitly untrusted data. The model receives no credentials and has no tool-execution capability. It must not follow commands embedded in a source or question that override the research rules.
-
-Every factual or interpretive report statement must carry a source ID and an exact excerpt from the corresponding retrieved content. If a reference is missing, unknown, or its excerpt is absent, the entire statement is omitted. If this leaves required sections empty or no cited evidence, the report fails with an insufficient-evidence message. References are then numbered consecutively and rendered as safe links. Optional comparisons and conflicting evidence appear only when applicable.
-
-**These are provenance checks, not proof that every interpretation is correct.** Exact excerpt matching cannot prove that a quote entails a claim, establish source independence, or guarantee that a publisher is reliable. The UI exposes supporting excerpts and original links for review. Prompt-injection instructions and output validation reduce risk; they do not make model reasoning infallible.
+**These are provenance checks, not proof that every statement is correct.** Citations show where Tavily found each claim; open the linked sources to verify important findings.
 
 ## Local setup
 
@@ -93,12 +99,11 @@ python3 -m venv .venv
 cp .env.example .env
 ```
 
-Fill in `.env` with your own keys from [Tavily](https://app.tavily.com/) and [Google AI Studio](https://aistudio.google.com/apikey). Do not commit that file.
+Add your key from [Tavily](https://app.tavily.com/) to `.env`. Do not commit that file.
 
 ```env
 TAVILY_API_KEY=your_tavily_key
-GEMINI_API_KEY=your_gemini_key
-GEMINI_MODEL=gemini-3.5-flash-lite
+TAVILY_RESEARCH_MODEL=mini
 FLASK_DEBUG=false
 PORT=5000
 ```
@@ -106,32 +111,31 @@ PORT=5000
 | Variable | Purpose |
 | --- | --- |
 | `TAVILY_API_KEY` | Required server-side Tavily credential. |
-| `GEMINI_API_KEY` | Required server-side Gemini credential. |
-| `GEMINI_MODEL` | Gemini model ID; defaults to `gemini-3.5-flash-lite` if empty. |
+| `TAVILY_RESEARCH_MODEL` | `mini` (default), `pro`, or `auto`. Unknown values fall back to `mini`. |
 | `FLASK_DEBUG` | Optional local debugging; keep `false` in deployment. |
 | `PORT` | Local port or hosting-provided production port. |
 
-Start the local application in PowerShell:
+Start the app in PowerShell:
 
 ```powershell
 .\.venv\Scripts\python.exe app.py
 ```
 
-If your Windows terminal is **Git Bash** (shows `MINGW64`), use forward slashes:
+If your Windows terminal is **Git Bash** (it shows `MINGW64`), use forward slashes:
 
 ```bash
 ./.venv/Scripts/python.exe app.py
 ```
 
-On macOS/Linux use `.venv/bin/python app.py`. Open **http://127.0.0.1:5000**. The app can render without keys; research requires both keys and provider account access. Restart after changing `.env`. Questions must be between 3 and 1,500 characters.
+On macOS/Linux, use `.venv/bin/python app.py`. Open **http://127.0.0.1:5000**. The page loads without a key, but research needs `TAVILY_API_KEY` and an account with Research API access and available credits. Restart the server after changing `.env`. Questions must be between 3 and 1,500 characters.
 
 ## Using the workspace
 
-1. Type a question or select an example, then choose **Start Research**. Ctrl/Cmd + Enter also submits.
-2. Inspect the real progress timeline, research objective, searches, and discovered sources.
-3. Read the report. Select a citation to jump to its source; expand supporting excerpts or open the original article.
-4. **Copy report** includes all cited references. **Export PDF** opens the browser print dialog: choose **Save as PDF** and disable browser headers/footers for the cleanest output.
-5. Choose **New research** to start again. Reports remain only in the current page; a reload discards them.
+1. Type a question or select an example, then choose **Start research**. Ctrl/Cmd + Enter also submits.
+2. Follow the live timeline as Tavily plans, searches, reviews sources, and writes. Open **Search activity** to see each query; sources appear as Tavily finds them.
+3. Read the report. Select a citation number to jump to its source, expand **Where it's cited in the report**, or open the original page.
+4. **Copy report** includes the full report and every reference URL. **Export PDF** opens the browser print dialog: choose **Save as PDF** and turn off browser headers and footers for the cleanest output.
+5. Choose **New research** to start again. Reports stay only in the current page; reloading discards them.
 
 ## API
 
@@ -139,16 +143,25 @@ On macOS/Linux use `.venv/bin/python app.py`. Open **http://127.0.0.1:5000**. Th
 POST /api/research
 Content-Type: application/json
 
-{"question":"Compare Python, JavaScript, and Go for backend development."}
+{"question":"Compare Python, Node.js, and Go for backend development."}
 ```
 
-Success uses `application/x-ndjson`: one JSON object per line with types `progress`, `plan`, `sources`, `review`, `notice`, `heartbeat`, and finally `result` or `error`. Check the final event, since an error after streaming starts cannot change the HTTP status. Input/configuration/capacity errors before streaming use a JSON error response and an appropriate 4xx/5xx status.
+Success returns `application/x-ndjson`: one JSON object per line, with types `progress`, `sources`, `notice`, `heartbeat`, and finally `result` or `error`. Always check the final event: once streaming has started, an error can no longer change the HTTP status. Input, configuration, and capacity errors that happen before streaming return a JSON error with a 4xx or 5xx status.
 
-`GET /api/health` returns liveness and a boolean `research_available`. The boolean indicates configured credentials, **not** a successful provider connectivity test. No keys, prompts, or reports are stored in an application database. Questions and retrieved context are transmitted to the configured providers; consult their data policies for sensitive research.
+The `result` report contains:
+
+| Field | Contents |
+| --- | --- |
+| `title`, `question`, `generated_at` | Report title, the original question, and the generation time. |
+| `blocks` | The parsed report body: headings, paragraphs, lists, tables, quotes, and code, with inline `cite`, `link`, `strong`, `em`, and `code` segments. |
+| `markdown` | The report body as Markdown, used by **Copy report**. |
+| `sources` | Numbered references, each with `id`, `title`, `url`, `domain`, and `retrieved`. |
+| `limitations` | Research notes, such as a fallback that was used or a citation that couldn't be matched. |
+| `research` | The model, transport mode, queries, source counts, elapsed time, and Tavily credits (when Tavily reports them). |
+
+`GET /api/health` returns liveness and a boolean `research_available`. The boolean only means a Tavily key is configured; it does **not** test the connection to Tavily. Keys, prompts, and reports are not stored in any database. Questions are sent to Tavily; check Tavily's data policy before researching sensitive topics.
 
 ## Testing
-
-Install test dependencies:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
@@ -156,54 +169,47 @@ Install test dependencies:
 .\.venv\Scripts\python.exe -m pytest -m browser -q
 ```
 
-Browser tests use local Chrome or Edge when available. Otherwise set `BROWSER_EXECUTABLE` to your Chromium binary or run `python -m playwright install chromium` in the virtual environment. They exercise the real local Flask/agent flow with provider fixtures, check desktop/tablet/mobile widths, validate citation anchors, test copy and print, and write screenshots and a PDF into ignored `test-results/`. Fixture data lives only under `tests/`; it is not a production fallback.
+The unit and app tests replay synthetic Tavily streams in the exact SSE format the live API returns. They cover:
 
-The automated suite covers basic research, technology comparisons, current-topic filters, follow-up/no-follow-up decisions, no-source failures, provider failures, malformed JSON, input validation, citation provenance, deduplication, deadline/search budgets, stream responses, and bounded concurrency.
+- progress mapping and stream buffering
+- the stream-to-polling fallback and failed tasks
+- authentication and credit errors
+- reference parsing, citation ranges, comparison tables, and unsafe-URL filtering
+- HTML-injection safety, input validation, streaming responses, and bounded concurrency
 
-To run a **genuine provider test**, configure `.env`, then opt in explicitly (this uses provider credits):
+Browser tests use a local Chrome or Edge when one is available. Otherwise, set `BROWSER_EXECUTABLE` to your Chromium binary or run `python -m playwright install chromium` in the virtual environment. They check desktop, tablet, and mobile widths, citation anchors, copy, print/PDF, cancellation, and the help dialog. Fixture data lives only under `tests/` and is never used as a production fallback.
+
+To run a **genuine Tavily test**, configure `.env` and opt in explicitly. This uses Tavily credits.
 
 ```powershell
 $env:RUN_LIVE_TESTS = "1"
 .\.venv\Scripts\python.exe -m pytest -m live -q
 ```
 
-On macOS/Linux: `RUN_LIVE_TESTS=1 .venv/bin/python -m pytest -m live -q`.
-
-Live tests are skipped when credentials or the opt-in flag are absent. Passing mocks does not establish live API compatibility or answer quality. No live research or successful deployment is claimed without those checks actually running.
-
-Validation in the development workspace (November 21, 2026): **59 backend/agent checks and 7 Chromium browser checks passed** on Windows with Python 3.14.2. Browser checks covered widths of 320, 390, 768, and 1440 pixels, clipboard copy, collapsible sources, citation navigation, PDF output with sources collapsed, help-dialog focus, actual progress events, and cancellation.
-
-**Live integration verified:** the opt-in Flask streaming test completed a basic AI research question using real Gemini and Tavily calls. A separate real Chromium session completed a Python/Node.js/Go comparison, produced three comparison rows and eight cited sources, and verified source URL provenance, citation navigation, and clipboard copy. These were actual API responses, not fixture reports. Earlier Gemini 3.8 planning timeouts were avoided by configuring Gemini 3.5 Flash-Lite; a separate HTTP 400 from the report schema was fixed by moving nested length constraints to local validation. Temporary Gemini server errors/timeouts now have a single bounded retry. Provider availability and output quality can still vary. Render deployment has not been performed.
+On macOS/Linux, use `RUN_LIVE_TESTS=1 .venv/bin/python -m pytest -m live -q`.
 
 ## Render deployment
 
-The repository includes `render.yaml` and `gunicorn.conf.py`. Push the source to your Git repository and create a Render Blueprint from it, or create a Python Web Service manually following [Render's Flask guide](https://render.com/docs/deploy-flask).
+The repository includes `render.yaml` and `gunicorn.conf.py`. Push the source to your Git repository and create a Render Blueprint from it, or create a Python Web Service manually by following [Render's Flask guide](https://render.com/docs/deploy-flask).
 
 | Setting | Value |
 | --- | --- |
 | Build command | `pip install -r requirements.txt` |
 | Start command | `gunicorn --config gunicorn.conf.py app:app` |
 | Health check | `/api/health` |
-| Required secrets | `TAVILY_API_KEY`, `GEMINI_API_KEY` |
-| Model | `GEMINI_MODEL=gemini-3.5-flash-lite` (or your supported model) |
+| Required secret | `TAVILY_API_KEY` |
+| Model | `TAVILY_RESEARCH_MODEL=mini` (or `pro` / `auto`) |
 | Debug | `FLASK_DEBUG=false` |
 
-Gunicorn binds to `0.0.0.0:$PORT` using the port Render supplies. Render terminates HTTPS. Gunicorn is installed only on non-Windows platforms; use Flask's development server locally on Windows. Do not enable Flask's debugger publicly. The app sends no-buffering headers for streaming; if you add a reverse proxy, disable response buffering and allow the research request duration. No database provisioning is needed.
-
-After deployment, open the HTTPS URL, inspect `/api/health`, and run a real research request to verify credentials, quotas, streaming, and citations. A successful health check alone does not verify the research workflow. Deployment configuration is provided; creating a Render service is a separate step.
+Gunicorn binds to `0.0.0.0:$PORT` using the port Render supplies, and Render terminates HTTPS. Gunicorn is installed only on non-Windows platforms; on Windows, use Flask's development server locally. Never enable Flask's debugger publicly. The app sends no-buffering headers for streaming; if you add a reverse proxy, turn off response buffering and allow for the full research duration.
 
 ## Current limitations
 
-- Three searches cannot exhaust a broad topic. Narrow questions work best.
-- Retrieved excerpts may omit important context, and recency filters do not prove a document's publication date. Paywalled or inaccessible content may be absent.
-- Synthesis can still misinterpret evidence. Citation provenance is checked, semantic correctness is not independently verified.
-- Two research tasks per process protect concurrency, but there is no user authentication, distributed rate limiter, or spending cap. Configure provider quotas for a public demo.
-- API failures, quotas, and cold starts affect availability. A failed follow-up can produce a clearly labeled partial report from initial evidence.
-- Research is not persisted. There is no history, recovery after a reload, or server-side PDF generator.
-- External Google Fonts require network access; system sans-serif fallbacks remain usable. Icons are vendored locally.
-
-## Future improvements
-
-Independent claim-entailment checks, stronger source-authority evaluation, better date normalization, and a configurable research-depth budget would improve evidence quality. These are future work, not existing features.
+- Report quality, depth, and source selection depend on Tavily's research agent and the model you choose.
+- Citation checks confirm that each reference is real and was retrieved during the run. They do not prove that a source supports every word of a claim.
+- If the stream is interrupted, the polling fallback reruns the research as a new Tavily task, which uses additional credits.
+- Two research tasks per process protect concurrency, but there is no user authentication, distributed rate limiting, or spending cap. Set provider quotas before running a public demo.
+- Research is not saved. There is no history, no recovery after a reload, and no server-side PDF generator.
+- External Google Fonts need network access; system sans-serif fallbacks still work. Icons are bundled locally.
 
 Lucide icons are used under their ISC license; see `static/assets/lucide-LICENSE.txt`.

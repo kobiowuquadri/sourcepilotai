@@ -9,7 +9,7 @@ from werkzeug.serving import make_server
 
 import agent
 from app import create_app
-from tests.fixtures import make_case
+from tests.fixtures import make_case, stream_chunks
 
 pytestmark = pytest.mark.browser
 
@@ -17,9 +17,8 @@ pytestmark = pytest.mark.browser
 @pytest.fixture
 def browser_app(monkeypatch):
     playwright = pytest.importorskip("playwright.sync_api")
-    monkeypatch.setenv("GEMINI_API_KEY", "test-only")
     monkeypatch.setenv("TAVILY_API_KEY", "test-only")
-    monkeypatch.setattr(agent, "create_session", lambda: make_case("Compare Python, JavaScript, and Go for backend development.", follow_up=True)[0])
+    monkeypatch.setattr(agent, "create_session", lambda: make_case("Compare Python, JavaScript, and Go for backend development.")[0])
     server = make_server("127.0.0.1", 0, create_app(), threaded=True)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -135,13 +134,14 @@ def test_progress_tracks_provider_work_and_cancel_preserves_question(browser_app
     browser, url, artifacts = browser_app
     released = Event()
     session, _ = make_case()
-    generate = session.gemini.models.generate_content
+    chunks = stream_chunks("What is artificial intelligence?")
 
-    def wait_for_release(**kwargs):
+    def wait_for_release():
+        yield chunks[0]  # Tavily's real first event: planning starts.
         released.wait(timeout=30)
-        return generate(**kwargs)
+        yield from chunks[1:]
 
-    session.gemini.models.generate_content = wait_for_release
+    session.tavily.research.side_effect = lambda **kwargs: wait_for_release()
     monkeypatch.setattr(agent, "create_session", lambda: session)
     page = browser.new_page(viewport={"width": 1440, "height": 1000})
     try:

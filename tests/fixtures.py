@@ -1,4 +1,4 @@
-"""Synthetic provider fixtures. Imported by tests only, never by the app."""
+"""Synthetic Tavily Research fixtures in the real SSE format. Tests only, never the app."""
 
 import json
 from types import SimpleNamespace
@@ -6,36 +6,64 @@ from unittest.mock import Mock
 
 from agent import ResearchSession
 
+SOURCES = [{"url": f"https://example.org/research/{i}", "title": f"Test evidence {i}",
+            "favicon": "https://example.org/favicon.ico"} for i in (1, 2, 3)]
 
-def make_case(question="What is artificial intelligence?", *, follow_up=False):
-    comparison = "compare" in question.lower()
-    current = "this month" in question.lower()
-    contents = (
-        ["Python supports multiple programming paradigms and has a broad package ecosystem for web development and data analysis.",
-         "JavaScript is used in server applications with Node.js and supports asynchronous network operations through its runtime.",
-         "Go provides built-in concurrency primitives and compiles programs to native executables for supported platforms."]
-        if comparison else
-        ["Artificial intelligence systems can perform tasks such as reasoning, learning, and making predictions from data. Evidence quality matters.",
-         "Machine learning systems learn patterns from examples and require evaluation on data representative of their intended use.",
-         "Evaluation results depend on the tasks, datasets, and conditions used. A single score does not establish general reliability."]
-    )
-    sources = [{"title": f"Test evidence {i + 1}", "url": f"https://example.org/research/{i + 1}",
-                "content": content, "score": 0.9} for i, content in enumerate(contents)]
-    claims = [{"text": text, "kind": "evidence", "citations": [{"source_id": i + 1, "quote": text[:85]}]}
-              for i, text in enumerate(contents)]
-    plan = {"objective": f"Investigate: {question}", "subquestions": ["What does the evidence establish?", "Where is the evidence limited?"],
-            "queries": [question, f"Primary sources {question}"], "time_range": "month" if current else "none"}
-    review = {"relevant_source_ids": [1, 2], "gaps": ["Need an independent perspective."] if follow_up else [],
-              "follow_up_query": "Independent evaluation evidence" if follow_up else "",
-              "reasoning": "A targeted search could resolve an evidence gap." if follow_up else "The available sources cover the planned questions."}
-    used = claims if follow_up else claims[:2]
-    report = {"title": "Test fixture: evidence-backed research", "executive_summary": [claims[0]],
-              "key_findings": used, "detailed_analysis": [{"heading": "Evidence overview", "paragraphs": used}],
-              "comparisons": [{"option": label, "assessment": claim} for label, claim in zip(["Python", "JavaScript", "Go"], used)] if comparison else [],
-              "conflicting_evidence": [], "conclusion": [claims[0]],
-              "limitations": ["Synthetic fixtures used for automated testing; this is not a live research result."]}
-    responses = [SimpleNamespace(text=json.dumps(item)) for item in [plan, review, report]]
-    gemini = SimpleNamespace(models=SimpleNamespace(generate_content=Mock(side_effect=responses)), close=Mock())
-    tavily = SimpleNamespace(search=Mock(side_effect=[{"results": sources[:2]}, {"results": sources[:2]}, {"results": sources[2:]}]), session=SimpleNamespace(close=Mock()))
-    session = ResearchSession(gemini=gemini, tavily=tavily)
-    return session, {"plan": plan, "review": review, "report": report, "sources": sources}
+
+def sse(delta: dict) -> bytes:
+    payload = {"id": "chunk", "object": "chat.completion.chunk", "model": "mini", "created": 0,
+               "choices": [{"delta": {"role": "assistant", **delta}}]}
+    return f"event: chat.completion.chunk\ndata: {json.dumps(payload)}\n\n".encode()
+
+
+def tool(kind: str, name: str, arguments: str, **extra) -> bytes:
+    return sse({"tool_calls": {"type": kind, kind: [{"id": f"{name}-id", "name": name, "arguments": arguments, **extra}]}})
+
+
+def report_markdown(question: str) -> str:
+    lines = ["# Test fixture: evidence-backed research", "",
+             "An overview paragraph with **bold** text supported by evidence [1].", "",
+             "## Key findings", "",
+             "- First finding with two citations [1], [2].",
+             "- Second finding from an independent source [3].", ""]
+    if "compare" in question.lower():
+        lines += ["## Comparison", "", "| Option | Strength |", "|---|---|",
+                  "| Python | Broad ecosystem [1] |", "| JavaScript | Asynchronous I/O [2] |",
+                  "| Go | Built-in concurrency [3] |", ""]
+    lines += ["## Conclusion", "", "Synthetic fixture used for automated testing; not a live result [2].", "",
+              "## Sources", ""] + [f"[{i}] {source['url']}" for i, source in enumerate(SOURCES, 1)]
+    return "\n".join(lines)
+
+
+def stream_chunks(question: str, chunk_size: int = 53) -> list[bytes]:
+    markdown = report_markdown(question)
+    events = [
+        tool("tool_call", "Planning", "Initializing research plan..."),
+        tool("tool_call", "WebSearch", "Executing 2 search queries", queries=[question, f"Primary sources {question}"]),
+        tool("tool_response", "WebSearch", "Completed search", sources=SOURCES[:2]),
+        tool("tool_response", "Planning", "Research plan initialized"),
+        tool("tool_call", "WebSearch", "Executing 1 search query", queries=["Independent evaluation evidence"]),
+        tool("tool_response", "WebSearch", "Completed search", sources=SOURCES[2:]),
+        tool("tool_call", "Generating", "Generating final report..."),
+        tool("tool_response", "Generating", "Final report generated"),
+        *[sse({"content": markdown[i:i + 90]}) for i in range(0, len(markdown), 90)],
+        sse({"sources": SOURCES}),
+        b"event: done\n\n",
+    ]
+    raw = b"".join(events)
+    # Awkward boundaries prove the SSE parser buffers partial events correctly.
+    return [raw[i:i + chunk_size] for i in range(0, len(raw), chunk_size)]
+
+
+def make_case(question="What is artificial intelligence?"):
+    def research(**kwargs):
+        if kwargs.get("stream"):
+            return iter(stream_chunks(kwargs["input"]))
+        return {"request_id": "req-test", "status": "pending", "input": kwargs["input"], "model": kwargs.get("model")}
+
+    completed = {"request_id": "req-test", "status": "completed", "content": report_markdown(question),
+                 "sources": SOURCES, "usage": {"credits": 12}}
+    tavily = SimpleNamespace(research=Mock(side_effect=research), get_research=Mock(return_value=completed),
+                             session=SimpleNamespace(close=Mock()))
+    session = ResearchSession(tavily=tavily, model="mini")
+    return session, {"markdown": report_markdown(question), "sources": SOURCES, "completed": completed}

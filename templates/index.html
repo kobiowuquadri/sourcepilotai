@@ -20,7 +20,7 @@
     <a class="brand" href="/" aria-label="SourcePilot AI home"><img src="{{ url_for('static', filename='assets/logo.svg') }}" width="32" height="32" alt=""><span>SourcePilot<span class="brand-ai">AI</span></span></a>
     <button type="button" class="sidebar-new new-research" aria-label="New research"><i data-lucide="plus"></i><span>New research</span></button>
     <nav class="main-nav" aria-label="Main navigation"><a href="#research" class="nav-link active" id="research-nav" aria-current="page"><i data-lucide="search"></i><span>Research</span></a></nav>
-    <div class="sidebar-bottom"><button type="button" id="how-nav" class="nav-link" aria-label="How it works" aria-haspopup="dialog"><i data-lucide="circle-help"></i><span>How it works</span></button><div class="provider-credit"><span>Powered by</span><p>Tavily <span>+</span> Gemini</p></div></div>
+    <div class="sidebar-bottom"><button type="button" id="how-nav" class="nav-link" aria-label="How it works" aria-haspopup="dialog"><i data-lucide="circle-help"></i><span>How it works</span></button><div class="provider-credit"><span>Powered by</span><p>Tavily <span>Research</span></p></div></div>
   </aside>
   <div class="app-shell">
     <header class="topbar"><div class="breadcrumb"><span>Research</span><span class="breadcrumb-divider">/</span><span id="view-label">New session</span></div><span class="topbar-note"><i data-lucide="globe-2"></i> An open web. A clearer answer.</span></header>
@@ -37,7 +37,7 @@
           </form>
           <div class="input-under"><span id="question-hint">Grounded in sources. Open to exploration.</span><span class="keyboard-hint"><kbd>Ctrl</kbd><kbd>↵</kbd></span></div>
           <p id="form-error" class="error-message" role="alert" hidden></p>
-          <p id="config-notice" class="config-notice" hidden><i data-lucide="info"></i><span>Add your Tavily and Gemini API keys to the server’s .env file to enable research.</span></p>
+          <p id="config-notice" class="config-notice" hidden><i data-lucide="info"></i><span>Add your Tavily API key to the server’s .env file to enable research.</span></p>
           <div class="examples" aria-label="Example research questions"><p class="examples-label">Or start with a little inspiration</p><div class="example-list">
             <button type="button" class="example" data-question="What are the biggest AI trends in 2026?"><span class="example-topic">Explore a topic</span><span>What’s next for AI?</span></button>
             <button type="button" class="example" data-question="Compare Python, Node.js, and Go for backend development."><span class="example-topic">Compare your options</span><span>Python, Node.js, or Go?</span></button>
@@ -75,9 +75,9 @@
     <footer class="site-footer"><p>Research smarter. Verify everything.</p><span>SourcePilot AI</span></footer>
   </div>
   <dialog id="how-dialog" aria-labelledby="how-title"><div class="dialog-heading"><span class="eyebrow">A LOOK BEHIND THE ANSWER</span><button type="button" id="how-close" class="icon-button" aria-label="Close how it works" autofocus><i data-lucide="x"></i></button></div><h2 id="how-title">Curiosity, with a process.</h2><p class="dialog-intro">One question. A thoughtful trail of evidence.</p><div class="how-steps">
-    <section><i data-lucide="list-checks"></i><div><h3>Make a plan</h3><p>Gemini turns your question into focused objectives and search queries.</p></div></section>
-    <section><i data-lucide="globe-2"></i><div><h3>Follow the evidence</h3><p>Tavily searches the live web. The agent reviews sources and follows up when something is missing.</p></div></section>
-    <section><i data-lucide="book-open"></i><div><h3>Bring it into focus</h3><p>Get a structured report with citations and supporting excerpts you can explore, copy, or save as a PDF.</p></div></section>
+    <section><i data-lucide="list-checks"></i><div><h3>Make a plan</h3><p>Tavily Research turns your question into a plan and focused search queries.</p></div></section>
+    <section><i data-lucide="globe-2"></i><div><h3>Follow the evidence</h3><p>Tavily searches the live web, reviews sources, and digs deeper where evidence is thin. You see each step as it happens.</p></div></section>
+    <section><i data-lucide="book-open"></i><div><h3>Bring it into focus</h3><p>Get a structured report with numbered citations linked to every source. Explore, copy, or save it as a PDF.</p></div></section>
   </div><p class="dialog-footnote">AI can make mistakes. Use the linked sources to check important findings.</p></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 </body>

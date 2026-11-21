@@ -193,6 +193,19 @@ a.source-title:hover { color: var(--accent-strong); text-decoration: underline; 
 .comparison-table th:first-child { width: 28%; }
 .comparison-table tbody th { font-size: 13px; font-weight: 550; }
 .comparison-table p { margin: 0; font-size: 13px; }
+.report-section ol { padding-left: 23px; margin: 0; }
+.report-section li.nested-1 { margin-left: 22px; }
+.report-section li.nested-2 { margin-left: 44px; }
+.report-section strong { color: var(--text); font-weight: 600; }
+.report-section code, .report-code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .88em; background: #efebe3; border-radius: 4px; padding: 1px 5px; }
+.report-code { display: block; padding: 14px 16px; overflow-x: auto; white-space: pre; line-height: 1.6; }
+.report-quote { margin: 16px 0; padding: 4px 0 4px 16px; border-left: 3px solid #d9b39e; color: #63584d; font-size: 15px; line-height: 1.8; }
+.report-link { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
+.table-scroll { max-width: 100%; overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 9px; }
+.table-scroll .comparison-table { table-layout: auto; min-width: 520px; }
+.table-scroll .comparison-table th:first-child { width: auto; }
+.table-scroll .comparison-table td, .table-scroll .comparison-table tbody th { font-size: 13px; line-height: 1.6; color: #514d45; }
+.table-scroll .comparison-table tbody tr:last-child > * { border-bottom: 0; }
 .limitations-section { border-top: 1px solid var(--border); padding-top: 24px; }
 .limitations-section h2 { color: var(--muted); font-size: 15px; }
 .limitations-section li { color: var(--muted); font-size: 13px; }
@@ -357,5 +370,7 @@ body:has(dialog[open]) { overflow: hidden; }
   .citation { color: #713a25; background: #f1e5db; }
   .comparison-table tr { break-inside: avoid; }
   .comparison-table thead { display: table-header-group; }
+  .table-scroll { overflow: visible; border: 0; }
+  .table-scroll .comparison-table { min-width: 0; font-size: 9pt; }
   .source-footnote { color: #555; }
 }

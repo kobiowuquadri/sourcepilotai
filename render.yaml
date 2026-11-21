@@ -11,9 +11,7 @@ services:
         value: 3.13.5
       - key: FLASK_DEBUG
         value: "false"
-      - key: GEMINI_MODEL
-        value: gemini-3.5-flash-lite
+      - key: TAVILY_RESEARCH_MODEL
+        value: mini
       - key: TAVILY_API_KEY
-        sync: false
-      - key: GEMINI_API_KEY
         sync: false

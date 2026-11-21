@@ -1,4 +1,4 @@
-/* All research text is rendered with textContent. No model-generated HTML. */
+/* All research text is rendered with textContent. No provider-generated HTML. */
 "use strict";
 
 const $ = (selector) => document.querySelector(selector);
@@ -94,13 +94,14 @@ function externalUrl(value) {
 
 function sourceCard(source, { final = false, quotes = [] } = {}) {
   const card = el("div", "source-card");
-  if (final) {
+  const numbered = final && source.id != null;
+  if (numbered) {
     card.id = `source-${source.id}`;
     card.tabIndex = -1;
   }
   const domain = el("div", "source-domain");
-  domain.append(el("span", "source-number", final ? String(source.id) : ""));
-  if (!final) domain.firstChild.append(icon("globe-2"));
+  domain.append(el("span", "source-number", numbered ? String(source.id) : ""));
+  if (!numbered) domain.firstChild.append(icon("globe-2"));
   domain.append(el("span", "", source.domain));
   const url = externalUrl(source.url);
   const title = el(url ? "a" : "span", "source-title", source.title);
@@ -110,11 +111,12 @@ function sourceCard(source, { final = false, quotes = [] } = {}) {
     title.rel = "noopener noreferrer";
     title.append(icon("arrow-up-right"));
   }
-  card.append(domain, title, el("p", "", source.summary));
+  card.append(domain, title);
+  if (source.summary) card.append(el("p", "", source.summary));
   if (final && url) card.append(el("span", "print-url", url));
   if (final && quotes.length) {
     const details = el("details", "source-excerpts");
-    details.append(el("summary", "", "View supporting excerpts"));
+    details.append(el("summary", "", "Where it’s cited in the report"));
     for (const quote of [...new Set(quotes)].slice(0, 6)) details.append(el("blockquote", "", quote));
     card.append(details);
   }
@@ -125,6 +127,7 @@ function handleEvent(event) {
   if (event.type === "progress") {
     setStage(event.stage, event.message);
     if (event.query) logActivity(event.query);
+    for (const query of event.queries || []) logActivity(query);
   } else if (event.type === "plan") {
     $("#plan-preview").hidden = false;
     $("#plan-objective").textContent = event.plan.objective;
@@ -218,7 +221,7 @@ async function startResearch(question) {
   window.scrollTo({ top: 0, behavior: scrollBehavior() });
   $("#workspace-title").focus({ preventScroll: true });
   let timedOut = false;
-  const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 210_000);
+  const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 330_000);
   try {
     const response = await fetch("/api/research", {
       method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/x-ndjson" },
@@ -246,42 +249,80 @@ async function startResearch(question) {
   }
 }
 
-function renderClaim(claim, tag = "p") {
-  const node = el(tag);
-  if (claim.kind !== "evidence") node.append(el("span", `claim-label ${claim.kind}`, claim.kind));
-  node.append(document.createTextNode(claim.text));
-  const used = new Set();
-  for (const reference of claim.citations) {
-    if (used.has(reference.source_id)) continue;
-    used.add(reference.source_id);
-    const source = currentReport.sources.find((s) => s.id === reference.source_id);
-    if (!source) continue;
-    const link = el("a", "citation", String(reference.source_id));
-    link.href = `#source-${reference.source_id}`;
-    link.title = reference.quote;
-    link.setAttribute("aria-label", `Source ${reference.source_id}: ${source.title}`);
-    node.append(link);
+function plainText(segments) {
+  return (segments || []).map((s) => s.t === "strong" || s.t === "em" ? plainText(s.c) : s.t === "cite" ? "" : s.v || "").join("").replace(/\s+/g, " ").trim();
+}
+
+function renderInline(segments, parent, excerpt = null) {
+  for (const segment of segments || []) {
+    if (segment.t === "text") parent.append(document.createTextNode(segment.v));
+    else if (segment.t === "strong" || segment.t === "em") parent.append(renderInline(segment.c, el(segment.t), excerpt));
+    else if (segment.t === "code") parent.append(el("code", "", segment.v));
+    else if (segment.t === "link") {
+      const url = externalUrl(segment.url);
+      if (!url) { parent.append(document.createTextNode(segment.v)); continue; }
+      const link = el("a", "report-link", segment.v);
+      link.href = url; link.target = "_blank"; link.rel = "noopener noreferrer";
+      parent.append(link);
+    } else if (segment.t === "cite") {
+      for (const id of segment.ids) {
+        const source = currentReport.sources.find((s) => s.id === id);
+        if (!source) { parent.append(document.createTextNode(` [${id}]`)); continue; }
+        const link = el("a", "citation", String(id));
+        link.href = `#source-${id}`;
+        link.title = source.title;
+        link.setAttribute("aria-label", `Source ${id}: ${source.title}`);
+        parent.append(link);
+        if (excerpt) excerpt(id);
+      }
+    }
   }
-  return node;
+  return parent;
 }
 
-function reportSection(title, claims, { list = false, summary = false } = {}) {
-  if (!claims.length) return null;
-  const section = el("section", `report-section${summary ? " summary-section" : ""}`);
-  const heading = el("h2");
-  if (summary) heading.append(icon("sparkles"));
-  heading.append(document.createTextNode(title));
-  section.append(heading);
-  const parent = list ? el("ul") : section;
-  for (const claim of claims) parent.append(renderClaim(claim, list ? "li" : "p"));
-  if (list) section.append(parent);
-  return section;
-}
-
-function allClaims(report) {
-  return [...report.executive_summary, ...report.key_findings,
-    ...report.detailed_analysis.flatMap((s) => s.paragraphs),
-    ...report.comparisons.map((c) => c.assessment), ...report.conflicting_evidence, ...report.conclusion];
+function renderBlock(block, excerpts) {
+  const recorder = (text) => (id) => {
+    if (!excerpts.has(id)) excerpts.set(id, []);
+    excerpts.get(id).push(text.length > 320 ? `${text.slice(0, 317)}…` : text);
+  };
+  if (block.type === "heading") return renderInline(block.content, el("h3"));
+  if (block.type === "paragraph") return renderInline(block.content, el("p"), recorder(plainText(block.content)));
+  if (block.type === "quote") return renderInline(block.content, el("blockquote", "report-quote"), recorder(plainText(block.content)));
+  if (block.type === "code") return el("pre", "report-code", block.text);
+  if (block.type === "list") {
+    const list = el(block.ordered ? "ol" : "ul");
+    for (const item of block.items) {
+      list.append(renderInline(item.content, el("li", item.level ? `nested-${item.level}` : ""), recorder(plainText(item.content))));
+    }
+    return list;
+  }
+  if (block.type === "table") {
+    const wrapper = el("div", "table-scroll");
+    const table = el("table", "comparison-table");
+    const head = el("thead");
+    const headRow = el("tr");
+    for (const cell of block.header) {
+      const th = renderInline(cell, el("th"));
+      th.scope = "col";
+      headRow.append(th);
+    }
+    head.append(headRow);
+    const body = el("tbody");
+    for (const cells of block.rows) {
+      const row = el("tr");
+      const record = recorder(cells.map(plainText).join(" · "));
+      cells.forEach((cell, i) => {
+        const node = renderInline(cell, el(i === 0 ? "th" : "td"), record);
+        if (i === 0) node.scope = "row";
+        row.append(node);
+      });
+      body.append(row);
+    }
+    table.append(head, body);
+    wrapper.append(table);
+    return wrapper;
+  }
+  return null;
 }
 
 function renderReport(report) {
@@ -296,66 +337,58 @@ function renderReport(report) {
   const title = el("h1", "", report.title);
   title.tabIndex = -1;
   const date = new Date(report.generated_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  const research = report.research;
+  const cited = report.sources.filter((s) => s.id != null).length;
   const meta = el("div", "report-meta");
-  for (const [name, label] of [["calendar-days", date], ["files", `${report.sources.length} cited sources`], ["search", `${report.research.search_count} web searches`]]) {
+  for (const [name, label] of [["calendar-days", date],
+    ["files", cited ? `${cited} cited sources` : `${report.sources.length} sources`],
+    ["search", research.search_count ? `${research.search_count} web searches` : `${research.consulted_source_count} sources consulted`]]) {
     const item = el("span");
     item.append(icon(name), document.createTextNode(label));
     meta.append(item);
   }
   documentNode.append(kicker, title, meta, el("p", "report-question", `Your question: ${report.question}`));
-  documentNode.append(reportSection("Executive summary", report.executive_summary, { summary: true }));
-  documentNode.append(reportSection("Key findings", report.key_findings, { list: true }));
-  const analysis = el("section", "report-section");
-  analysis.append(el("h2", "", "Detailed analysis"));
-  for (const section of report.detailed_analysis) {
-    analysis.append(el("h3", "", section.heading));
-    analysis.append(...section.paragraphs.map((claim) => renderClaim(claim)));
-  }
-  documentNode.append(analysis);
-  if (report.comparisons.length) {
-    const section = el("section", "report-section");
-    section.append(el("h2", "", "At a glance"));
-    const table = el("table", "comparison-table");
-    const head = el("thead");
-    const headRow = el("tr");
-    for (const label of ["Option", "Evidence & trade-offs"]) {
-      const th = el("th", "", label); th.scope = "col"; headRow.append(th);
+
+  const excerpts = new Map();
+  let section = null;
+  for (const block of report.blocks) {
+    if (block.type === "heading" && block.level === 2) {
+      section = el("section", "report-section");
+      section.append(renderInline(block.content, el("h2")));
+      documentNode.append(section);
+      continue;
     }
-    head.append(headRow);
-    const body = el("tbody");
-    for (const comparison of report.comparisons) {
-      const row = el("tr");
-      const name = el("th", "", comparison.option); name.scope = "row";
-      const assessment = el("td"); assessment.append(renderClaim(comparison.assessment));
-      row.append(name, assessment); body.append(row);
+    if (!section) {
+      section = el("section", "report-section summary-section");
+      const heading = el("h2");
+      heading.append(icon("sparkles"), document.createTextNode("Overview"));
+      section.append(heading);
+      documentNode.append(section);
     }
-    table.append(head, body); section.append(table); documentNode.append(section);
+    const node = renderBlock(block, excerpts);
+    if (node) section.append(node);
   }
-  const conflicts = reportSection("Conflicting evidence", report.conflicting_evidence);
-  if (conflicts) documentNode.append(conflicts);
-  documentNode.append(reportSection("Conclusion", report.conclusion));
   if (report.limitations.length) {
-    const section = el("section", "report-section limitations-section");
-    section.append(el("h2", "", "Gaps & limitations"));
+    const notes = el("section", "report-section limitations-section");
+    notes.append(el("h2", "", "Research notes"));
     const list = el("ul");
     list.append(...report.limitations.map((limitation) => el("li", "", limitation)));
-    section.append(list); documentNode.append(section);
+    notes.append(list);
+    documentNode.append(notes);
   }
   const method = el("details", "report-method");
-  method.append(el("summary", "", "Behind this research"), el("p", "", report.plan.objective));
-  method.append(el("p", "", report.research.follow_up_reasoning));
-  const queries = el("ul");
-  queries.append(...report.research.queries.map((query) => el("li", "", query)));
-  method.append(queries, el("p", "", `${report.research.reviewed_source_count} sources available for synthesis · ${report.research.elapsed_seconds} seconds elapsed. Citation references and supporting excerpts are checked against retrieved content; this is not independent fact verification.`));
+  method.append(el("summary", "", "Behind this research"));
+  method.append(el("p", "", `Planned, searched, analyzed, and written by the Tavily Research API (${research.model} model, ${research.mode === "poll" ? "background task" : "live stream"}).`));
+  if (research.queries.length) {
+    const queries = el("ul");
+    queries.append(...research.queries.map((query) => el("li", "", query)));
+    method.append(queries);
+  }
+  method.append(el("p", "", `${research.consulted_source_count} sources consulted · ${research.elapsed_seconds} seconds elapsed${research.credits ? ` · ${research.credits} Tavily credits` : ""}. Citation numbers link to the sources Tavily cited; open them to verify each finding.`));
   documentNode.append(method);
 
-  const quotes = new Map();
-  for (const claim of allClaims(report)) for (const ref of claim.citations) {
-    if (!quotes.has(ref.source_id)) quotes.set(ref.source_id, []);
-    quotes.get(ref.source_id).push(ref.quote);
-  }
   $("#report-source-count").textContent = String(report.sources.length);
-  $("#report-sources").replaceChildren(...report.sources.map((s) => sourceCard(s, { final: true, quotes: quotes.get(s.id) || [] })));
+  $("#report-sources").replaceChildren(...report.sources.map((s) => sourceCard(s, { final: true, quotes: excerpts.get(s.id) || [] })));
   setSourcesOpen(window.matchMedia("(min-width: 1001px)").matches);
   showView("report-view");
   refreshIcons();
@@ -364,20 +397,11 @@ function renderReport(report) {
 }
 
 function reportText(report) {
-  const claimText = (claim) => `${claim.kind !== "evidence" ? `${claim.kind.toUpperCase()}: ` : ""}${claim.text}${[...new Set(claim.citations.map((r) => r.source_id))].map((id) => ` [${id}]`).join("")}`;
-  const lines = [report.title, "SourcePilot AI — Research smarter. Verify everything.", `Research question: ${report.question}`, `Generated: ${new Date(report.generated_at).toLocaleString()}`, ""];
-  const section = (heading, claims, bullets = false) => {
-    if (claims.length) lines.push(heading.toUpperCase(), ...claims.map((c) => `${bullets ? "• " : ""}${claimText(c)}`), "");
-  };
-  section("Executive summary", report.executive_summary);
-  section("Key findings", report.key_findings, true);
-  lines.push("DETAILED ANALYSIS");
-  for (const item of report.detailed_analysis) section(item.heading, item.paragraphs);
-  if (report.comparisons.length) lines.push("COMPARISONS", ...report.comparisons.map((c) => `${c.option}: ${claimText(c.assessment)}`), "");
-  section("Conflicting evidence", report.conflicting_evidence);
-  section("Conclusion", report.conclusion);
-  if (report.limitations.length) lines.push("GAPS & LIMITATIONS", ...report.limitations.map((l) => `• ${l}`), "");
-  lines.push("SOURCES & REFERENCES", ...report.sources.map((s) => `[${s.id}] ${s.title}\n${s.url}`), "", "AI-assisted synthesis. Check original sources before relying on a finding.");
+  const lines = [report.title, "SourcePilot AI — Research smarter. Verify everything.", `Research question: ${report.question}`,
+    `Generated: ${new Date(report.generated_at).toLocaleString()}`, "", report.markdown, ""];
+  if (report.limitations.length) lines.push("RESEARCH NOTES", ...report.limitations.map((l) => `• ${l}`), "");
+  lines.push("SOURCES & REFERENCES", ...report.sources.map((s) => `${s.id != null ? `[${s.id}]` : "•"} ${s.title}\n${s.url}`), "",
+    "Researched with the Tavily Research API. Check original sources before relying on a finding.");
   return lines.join("\n\n");
 }
 

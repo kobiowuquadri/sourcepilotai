@@ -15,7 +15,7 @@ from agent import ResearchError, check_configuration, run_research, validate_que
 load_dotenv()
 # Provider exception logs can include request details. We return curated errors.
 logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("google.genai").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
 def create_app():
@@ -29,7 +29,7 @@ def create_app():
 
     @app.get("/api/health")
     def health():
-        ready = all(os.getenv(key, "").strip() for key in ("TAVILY_API_KEY", "GEMINI_API_KEY"))
+        ready = bool(os.getenv("TAVILY_API_KEY", "").strip())
         return jsonify(status="ok", research_available=ready)
 
     @app.errorhandler(RequestEntityTooLarge)
@@ -77,10 +77,6 @@ def create_app():
                         break
                     if cancelled.is_set():
                         break
-                    # Full source text is only needed on the server for synthesis.
-                    if event["type"] == "sources":
-                        event = {**event, "sources": [{k: v for k, v in source.items() if k not in ("content", "score")}
-                                                      for source in event["sources"]]}
                     events.put(event)
             except ResearchError as error:
                 events.put({"type": "error", "message": str(error), "code": error.code})
