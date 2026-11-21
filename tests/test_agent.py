@@ -122,6 +122,40 @@ def test_invalid_gemini_json_and_fenced_json():
     assert ask_json(session, Plan, "Plan", {}).queries
 
 
+def test_report_generation_schema_avoids_nested_length_constraints():
+    session, data = make_case()
+    session.gemini.models.generate_content.side_effect = [SimpleNamespace(text=json.dumps(data["report"]))]
+    report = ask_json(session, Report, "Generate the report", {}, report=True)
+    assert report.executive_summary
+    sent = session.gemini.models.generate_content.call_args.kwargs["config"].response_json_schema
+    encoded = json.dumps(sent)
+    assert not any(f'"{key}":' in encoded for key in ("minItems", "maxItems", "minLength", "maxLength"))
+    assert sent["properties"]["title"]["type"] == "string"
+    assert "at most 6 items" in sent["properties"]["key_findings"]["description"]
+    assert sent["$defs"]["Citation"]["required"] == ["source_id", "quote"]
+    assert sent["$defs"]["Claim"]["properties"]["kind"]["enum"] == ["evidence", "interpretation", "uncertainty"]
+    # Removing provider-side bounds must not mutate the actual validation model.
+    assert Report.model_json_schema()["properties"]["key_findings"]["maxItems"] == 6
+
+
+@pytest.mark.parametrize("invalid_case", ["too_many_findings", "empty_summary", "short_quote", "long_quote"])
+def test_relaxed_provider_schema_keeps_strict_local_validation(invalid_case):
+    session, data = make_case()
+    report = data["report"]
+    if invalid_case == "too_many_findings":
+        report["key_findings"] = [report["key_findings"][0]] * 7
+    elif invalid_case == "empty_summary":
+        report["executive_summary"] = []
+    elif invalid_case == "short_quote":
+        report["executive_summary"][0]["citations"][0]["quote"] = "too short"
+    else:
+        report["executive_summary"][0]["citations"][0]["quote"] = "x" * 601
+    session.gemini.models.generate_content.side_effect = [SimpleNamespace(text=json.dumps(report))]
+    with pytest.raises(ResearchError) as error:
+        ask_json(session, Report, "Generate the report", {}, report=True)
+    assert error.value.code == "invalid_response"
+
+
 def test_no_sources_after_followup():
     session, data = make_case(follow_up=True)
     data["review"]["relevant_source_ids"] = []
@@ -160,6 +194,44 @@ def test_provider_error_does_not_expose_secrets():
     public = provider_error("Gemini", error)
     assert public.status == 429
     assert "secret-api-key" not in str(public)
+
+
+def test_transient_gemini_failure_gets_one_retry_across_the_workflow(monkeypatch):
+    monkeypatch.setattr(agent.time, "sleep", lambda _: None)
+    session, data = make_case()
+    failure = RuntimeError("private provider details")
+    failure.code = 503
+    session.gemini.models.generate_content.side_effect = [
+        failure, SimpleNamespace(text=json.dumps(data["plan"])), failure,
+    ]
+    assert ask_json(session, Plan, "Plan", {}).queries
+    assert session.gemini_retries == 1
+    with pytest.raises(ResearchError):
+        ask_json(session, Plan, "Another stage", {})
+    assert session.gemini.models.generate_content.call_count == 3
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 429])
+def test_permanent_gemini_errors_are_not_retried(status):
+    session, _ = make_case()
+    failure = RuntimeError("private provider details")
+    failure.code = status
+    session.gemini.models.generate_content.side_effect = failure
+    with pytest.raises(ResearchError):
+        ask_json(session, Plan, "Plan", {})
+    assert session.gemini.models.generate_content.call_count == 1
+    assert session.gemini_retries == 0
+
+
+def test_gemini_retry_respects_remaining_workflow_time():
+    session, _ = make_case()
+    session.started = time.monotonic() - (agent.RESEARCH_TIMEOUT - 5)
+    session.gemini.models.generate_content.side_effect = TimeoutError("private")
+    with pytest.raises(ResearchError) as error:
+        ask_json(session, Plan, "Plan", {})
+    assert error.value.code == "timeout"
+    assert session.gemini.models.generate_content.call_count == 1
+    assert session.gemini_retries == 0
 
 
 @pytest.mark.parametrize("status", [408, 504])

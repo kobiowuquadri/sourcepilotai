@@ -44,7 +44,7 @@ This is a controlled agent workflow: the model formulates its search strategy, e
 | `validate_citations` | Check source IDs and quote provenance, omit invalid statements, and renumber cited sources. |
 | `run_research` | Coordinate the steps and yield actual progress and result events. |
 
-**Call budget:** up to three Tavily calls and three Gemini calls (plan, evidence review, synthesis). The small additional review call is intentional: it makes gap detection semantic and responsive to the retrieved evidence. There are no automatic retries or open-ended agent loops. A cooperative 160-second workflow deadline limits the time available to each next call; each Tavily request has at most an 18-second timeout, planning/review at most 35 seconds each, and synthesis at most 60 seconds. Provider/network timeout semantics can add overhead.
+**Call budget:** up to three Tavily calls and normally three Gemini calls (plan, evidence review, synthesis). The small additional review call is intentional: it makes gap detection semantic and responsive to the retrieved evidence. One additional Gemini request is allowed across the whole workflow after a temporary server error or timeout, subject to the same overall deadline. Authentication, quota, invalid requests, and invalid output are never retried. There are no open-ended agent loops. A cooperative 160-second workflow deadline limits the time available to each next call; each Tavily request has at most an 18-second timeout, planning/review at most 35 seconds each, and synthesis at most 60 seconds. Provider/network timeout semantics can add overhead.
 
 ## Architecture and stack
 
@@ -63,9 +63,11 @@ URL normalization is used only to detect duplicates. The original URL from Tavil
 
 ## Gemini integration and evidence integrity
 
-The supported `google-genai` SDK sends separate system instructions and JSON data, requests structured JSON with Pydantic-derived schemas, and validates the returned shape. `GEMINI_MODEL` is configurable; the example uses `gemini-3.8-flash`, listed as stable in [Google's model catalog](https://ai.google.dev/gemini-api/docs/models). Check model availability for your account if an API call fails.
+The supported `google-genai` SDK sends separate system instructions and JSON data, requests structured JSON with Pydantic-derived schemas, and validates the returned shape. `GEMINI_MODEL` is configurable; the example uses `gemini-3.5-flash-lite`, a [stable model optimized for low latency](https://aistudio.google.com/docs/models/gemini-3.5-flash-lite) and verified with real research requests. Check model availability for your account if an API call fails.
 
-For Gemini 3 models, the small planning step requests `LOW` thinking; evidence review and report synthesis retain the model's default. See [Google's thinking configuration guidance](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-3-8-flash). Provider deadline errors are displayed as timeouts.
+For Gemini 3 models, the small planning step requests `LOW` thinking; evidence review and report synthesis retain the model's default. See [Google's thinking configuration guidance](https://aistudio.google.com/docs/thinking). Provider deadline errors are displayed as timeouts.
+
+The schema sent to Gemini keeps field types, required fields, and citation structure, but expresses length bounds as descriptions. Nested array bounds can exceed Gemini's constrained-decoding limits; the original strict Pydantic models still enforce those bounds after generation. Supporting excerpts are requested short and bounded to 600 characters, and must match the retrieved source text. See [Google's schema guidance](https://aistudio.google.com/docs/structured-output#simplifying-complex-schemas).
 
 Webpage text is explicitly untrusted data. The model receives no credentials and has no tool-execution capability. It must not follow commands embedded in a source or question that override the research rules.
 
@@ -96,7 +98,7 @@ Fill in `.env` with your own keys from [Tavily](https://app.tavily.com/) and [Go
 ```env
 TAVILY_API_KEY=your_tavily_key
 GEMINI_API_KEY=your_gemini_key
-GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MODEL=gemini-3.5-flash-lite
 FLASK_DEBUG=false
 PORT=5000
 ```
@@ -105,7 +107,7 @@ PORT=5000
 | --- | --- |
 | `TAVILY_API_KEY` | Required server-side Tavily credential. |
 | `GEMINI_API_KEY` | Required server-side Gemini credential. |
-| `GEMINI_MODEL` | Gemini model ID; defaults to `gemini-3.8-flash` if empty. |
+| `GEMINI_MODEL` | Gemini model ID; defaults to `gemini-3.5-flash-lite` if empty. |
 | `FLASK_DEBUG` | Optional local debugging; keep `false` in deployment. |
 | `PORT` | Local port or hosting-provided production port. |
 
@@ -169,7 +171,9 @@ On macOS/Linux: `RUN_LIVE_TESTS=1 .venv/bin/python -m pytest -m live -q`.
 
 Live tests are skipped when credentials or the opt-in flag are absent. Passing mocks does not establish live API compatibility or answer quality. No live research or successful deployment is claimed without those checks actually running.
 
-Validation in the development workspace (November 21, 2026): **48 backend/agent checks and 7 Chromium browser checks passed** on Windows with Python 3.14.2. Browser checks covered widths of 320, 390, 768, and 1440 pixels, clipboard copy, collapsible sources, citation navigation, PDF output with sources collapsed, help-dialog focus, actual progress events, and cancellation. The interface redesign preserved the backend, agent, dependencies, and environment configuration. After credentials were configured, the homepage returned HTTP 200, Gemini model access succeeded, and Tavily returned a real search result. The live end-to-end research test was attempted before the redesign but failed with a Gemini planning deadline timeout (HTTP 504), including a retry with lower planning effort; complete live report generation is not yet verified. The normal Flask launch and unconfigured-service behavior were also checked. Render deployment has not been performed.
+Validation in the development workspace (November 21, 2026): **59 backend/agent checks and 7 Chromium browser checks passed** on Windows with Python 3.14.2. Browser checks covered widths of 320, 390, 768, and 1440 pixels, clipboard copy, collapsible sources, citation navigation, PDF output with sources collapsed, help-dialog focus, actual progress events, and cancellation.
+
+**Live integration verified:** the opt-in Flask streaming test completed a basic AI research question using real Gemini and Tavily calls. A separate real Chromium session completed a Python/Node.js/Go comparison, produced three comparison rows and eight cited sources, and verified source URL provenance, citation navigation, and clipboard copy. These were actual API responses, not fixture reports. Earlier Gemini 3.8 planning timeouts were avoided by configuring Gemini 3.5 Flash-Lite; a separate HTTP 400 from the report schema was fixed by moving nested length constraints to local validation. Temporary Gemini server errors/timeouts now have a single bounded retry. Provider availability and output quality can still vary. Render deployment has not been performed.
 
 ## Render deployment
 
@@ -181,7 +185,7 @@ The repository includes `render.yaml` and `gunicorn.conf.py`. Push the source to
 | Start command | `gunicorn --config gunicorn.conf.py app:app` |
 | Health check | `/api/health` |
 | Required secrets | `TAVILY_API_KEY`, `GEMINI_API_KEY` |
-| Model | `GEMINI_MODEL=gemini-3.8-flash` (or your supported model) |
+| Model | `GEMINI_MODEL=gemini-3.5-flash-lite` (or your supported model) |
 | Debug | `FLASK_DEBUG=false` |
 
 Gunicorn binds to `0.0.0.0:$PORT` using the port Render supplies. Render terminates HTTPS. Gunicorn is installed only on non-Windows platforms; use Flask's development server locally on Windows. Do not enable Flask's debugger publicly. The app sends no-buffering headers for streaming; if you add a reverse proxy, disable response buffering and allow the research request duration. No database provisioning is needed.
